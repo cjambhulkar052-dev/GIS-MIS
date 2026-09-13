@@ -4,25 +4,26 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { RoomCard, RoomCardSkeleton } from "@/components/room-card";
-import {
-  AMBER_INVENTORY_IS_LIVE,
-  getAvailableCities,
-  getAvailableRoomTypes,
-  searchAmberListings,
-} from "@/lib/amber";
-import type { AmberListing, AmberSearchFilters, RoomType } from "@/lib/types";
+import { getAvailableCities, getAvailableRoomTypes, searchAmberListings } from "@/lib/amber";
+import type { AmberDataSource, AmberListing, AmberSearchFilters } from "@/lib/types";
 
-const CITIES = ["Any", ...getAvailableCities()];
-const ROOM_TYPES: (RoomType | "Any")[] = ["Any", ...getAvailableRoomTypes()];
+const MAX_PRICE_CEILING = 2000;
 
 export default function FindRoomsPage() {
   const [listings, setListings] = useState<AmberListing[]>([]);
+  const [source, setSource] = useState<AmberDataSource>("mock");
+  const [apiError, setApiError] = useState<string | undefined>(undefined);
   const [loading, startSearch] = useTransition();
+
+  const [filterOptions, setFilterOptions] = useState({
+    cities: getAvailableCities(),
+    roomTypes: getAvailableRoomTypes(),
+  });
 
   const [query, setQuery] = useState("");
   const [city, setCity] = useState<string>("Any");
-  const [roomType, setRoomType] = useState<RoomType | "Any">("Any");
-  const [maxPrice, setMaxPrice] = useState(450);
+  const [roomType, setRoomType] = useState<string>("Any");
+  const [maxPrice, setMaxPrice] = useState(MAX_PRICE_CEILING);
   const [sortBy, setSortBy] = useState<AmberSearchFilters["sortBy"]>("recommended");
 
   const filters: AmberSearchFilters = useMemo(
@@ -30,24 +31,45 @@ export default function FindRoomsPage() {
       query: query.trim() || undefined,
       city: city === "Any" ? undefined : city,
       roomType: roomType === "Any" ? undefined : roomType,
-      maxPrice,
+      maxPrice: maxPrice < MAX_PRICE_CEILING ? maxPrice : undefined,
       sortBy,
     }),
     [query, city, roomType, maxPrice, sortBy],
   );
 
+  // One unfiltered baseline fetch to discover which cities/room types the
+  // connected inventory actually has (falls back to the mock list until then).
+  useEffect(() => {
+    let cancelled = false;
+    searchAmberListings({}).then((result) => {
+      if (cancelled || result.listings.length === 0) return;
+      setFilterOptions({
+        cities: Array.from(new Set(result.listings.map((l) => l.city))).sort(),
+        roomTypes: Array.from(new Set(result.listings.map((l) => l.roomType))).sort(),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     startSearch(async () => {
-      const results = await searchAmberListings(filters);
+      const result = await searchAmberListings(filters);
       if (!cancelled) {
-        setListings(results);
+        setListings(result.listings);
+        setSource(result.source);
+        setApiError(result.error);
       }
     });
     return () => {
       cancelled = true;
     };
   }, [filters, startSearch]);
+
+  const cityOptions = ["Any", ...filterOptions.cities];
+  const roomTypeOptions = ["Any", ...filterOptions.roomTypes];
 
   return (
     <>
@@ -66,10 +88,12 @@ export default function FindRoomsPage() {
                   partner operators.
                 </p>
               </div>
-              {!AMBER_INVENTORY_IS_LIVE && (
+              {source === "mock" && (
                 <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                  Showing sample inventory — connect the Amber API to go live
+                  {apiError
+                    ? `Amber API unavailable (${apiError}) — showing sample inventory`
+                    : "Showing sample inventory — connect the Amber API to go live"}
                 </span>
               )}
             </div>
@@ -101,7 +125,7 @@ export default function FindRoomsPage() {
                   onChange={(e) => setCity(e.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
                 >
-                  {CITIES.map((c) => (
+                  {cityOptions.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -115,12 +139,10 @@ export default function FindRoomsPage() {
                 </label>
                 <select
                   value={roomType}
-                  onChange={(e) =>
-                    setRoomType(e.target.value as RoomType | "Any")
-                  }
+                  onChange={(e) => setRoomType(e.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
                 >
-                  {ROOM_TYPES.map((rt) => (
+                  {roomTypeOptions.map((rt) => (
                     <option key={rt} value={rt}>
                       {rt}
                     </option>
@@ -131,21 +153,24 @@ export default function FindRoomsPage() {
               <div className="mt-5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-ink-600">
-                    Max price / week
+                    Max price
                   </label>
                   <span className="text-xs font-semibold text-ink-900">
-                    {maxPrice}
+                    {maxPrice >= MAX_PRICE_CEILING ? "No limit" : maxPrice}
                   </span>
                 </div>
                 <input
                   type="range"
                   min={100}
-                  max={450}
-                  step={10}
+                  max={MAX_PRICE_CEILING}
+                  step={50}
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(Number(e.target.value))}
                   className="mt-2 w-full accent-brand-600"
                 />
+                <p className="mt-1 text-xs text-ink-400">
+                  Compares listed price directly — weekly and monthly rates vary by property.
+                </p>
               </div>
 
               <div className="mt-5">
@@ -171,7 +196,7 @@ export default function FindRoomsPage() {
                   setQuery("");
                   setCity("Any");
                   setRoomType("Any");
-                  setMaxPrice(450);
+                  setMaxPrice(MAX_PRICE_CEILING);
                   setSortBy("recommended");
                 }}
                 className="mt-6 w-full rounded-lg border border-ink-200 py-2 text-xs font-semibold text-ink-600 transition hover:bg-ink-50"
