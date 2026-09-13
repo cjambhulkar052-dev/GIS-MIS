@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { Resend } from "resend";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAmberInventoryBatch } from "@/lib/amber-sync";
 import { mapAmberInventory } from "@/lib/amber-map";
-import { getSoldForDate, type SnapshotRow, type SoldReport } from "@/lib/sold-report";
+import {
+  CATALOG_CACHE_TAG,
+  getSoldForDate,
+  type SnapshotRow,
+  type SoldReport,
+} from "@/lib/sold-report";
 
 export const maxDuration = 60;
 
@@ -177,6 +183,9 @@ async function tick(force: boolean) {
   }
 
   // Last page reached this tick — diff against the previous snapshot and email it.
+  // Insights/Sales pages cache reads off this same data (see CATALOG_CACHE_TAG), so
+  // bust that cache now rather than waiting for it to expire on its own.
+  revalidateTag(CATALOG_CACHE_TAG, { expire: 0 });
   const report = await getSoldForDate(supabase, today);
 
   const recipients = (process.env.DAILY_REPORT_RECIPIENTS ?? "")

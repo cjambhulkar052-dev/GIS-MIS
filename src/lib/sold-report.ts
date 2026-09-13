@@ -1,7 +1,19 @@
 import "server-only";
-import type { createAdminClient } from "./supabase/admin";
+import { unstable_cache } from "next/cache";
+import { createAdminClient } from "./supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
+
+/**
+ * The daily cron job is the only writer to `amber_inventory_snapshots` /
+ * `amber_sync_progress`, and it runs once a day — so it's safe to reuse
+ * query results across requests for a while instead of re-scanning
+ * thousands of rows on every page view. The cron job calls
+ * `revalidateTag(CATALOG_CACHE_TAG)` once a sync completes, so this window
+ * is just a ceiling on staleness, not the normal refresh path.
+ */
+const CATALOG_CACHE_SECONDS = 900;
+export const CATALOG_CACHE_TAG = "amber-catalog";
 
 export interface SnapshotRow {
   listing_id: string;
@@ -71,6 +83,12 @@ export async function getCompletedSyncDates(supabase: AdminClient): Promise<stri
   return (data ?? []).map((r) => r.sync_date as string);
 }
 
+export const getCachedCompletedSyncDates = unstable_cache(
+  () => getCompletedSyncDates(createAdminClient()),
+  ["completed-sync-dates"],
+  { revalidate: CATALOG_CACHE_SECONDS, tags: [CATALOG_CACHE_TAG] },
+);
+
 /** The most recent completed sync strictly before `date`, or null if none. */
 async function getPreviousCompletedDate(
   supabase: AdminClient,
@@ -114,3 +132,9 @@ export async function getSoldForDate(supabase: AdminClient, date: string): Promi
 
   return { date, previousDate, noBaseline, soldRows, scannedListings: dateRows.length };
 }
+
+export const getCachedSoldForDate = unstable_cache(
+  (date: string) => getSoldForDate(createAdminClient(), date),
+  ["sold-for-date"],
+  { revalidate: CATALOG_CACHE_SECONDS, tags: [CATALOG_CACHE_TAG] },
+);

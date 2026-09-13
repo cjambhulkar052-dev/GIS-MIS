@@ -2,9 +2,8 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { PropertyMapLoader, type PropertyMapPoint } from "@/components/property-map-loader";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getCompletedSyncDates } from "@/lib/sold-report";
-import { getCountryInventory, summarizeByUniversity } from "@/lib/inventory-insights";
+import { getCachedCompletedSyncDates } from "@/lib/sold-report";
+import { getCachedCountryInventory, summarizeByUniversity } from "@/lib/inventory-insights";
 
 export default async function CityInventoryPage({
   params,
@@ -15,12 +14,11 @@ export default async function CityInventoryPage({
   const country = decodeURIComponent(encodedCountry);
   const city = decodeURIComponent(encodedCity);
 
-  const admin = createAdminClient();
-  const dates = await getCompletedSyncDates(admin);
+  const dates = await getCachedCompletedSyncDates();
   const latestDate = dates[0];
   const previousDate = dates[1] ?? null;
   const countryListings = latestDate
-    ? await getCountryInventory(admin, country, latestDate, previousDate)
+    ? await getCachedCountryInventory(country, latestDate, previousDate)
     : [];
   const listings = countryListings.filter((l) => l.city === city);
   const available = listings.filter((l) => l.status === "available");

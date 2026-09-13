@@ -5,8 +5,7 @@ import { CityMapLoader, type CityMapPoint } from "@/components/city-map-loader";
 import { CitySearch } from "@/components/city-search";
 import { UniversitySearch } from "@/components/university-search";
 import type { CityInsight } from "@/lib/inventory-insights";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getInventoryInsights } from "@/lib/inventory-insights";
+import { getCachedInventoryInsights } from "@/lib/inventory-insights";
 
 function formatDate(dateStr: string): string {
   return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString("en-GB", {
@@ -27,8 +26,7 @@ function formatShortDate(dateStr: string): string {
 }
 
 export default async function InsightsPage() {
-  const admin = createAdminClient();
-  const insights = await getInventoryInsights(admin);
+  const insights = await getCachedInventoryInsights();
   const mapPoints: CityMapPoint[] =
     insights?.cities
       .filter((c: CityInsight) => c.lat != null && c.lng != null)

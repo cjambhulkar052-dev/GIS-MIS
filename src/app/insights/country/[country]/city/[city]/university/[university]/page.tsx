@@ -2,9 +2,8 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { UniversityInventoryClient } from "@/components/university-inventory-client";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getCompletedSyncDates } from "@/lib/sold-report";
-import { getCountryInventory } from "@/lib/inventory-insights";
+import { getCachedCompletedSyncDates } from "@/lib/sold-report";
+import { getCachedCountryInventory } from "@/lib/inventory-insights";
 
 export default async function UniversityInventoryPage({
   params,
@@ -16,12 +15,11 @@ export default async function UniversityInventoryPage({
   const city = decodeURIComponent(encodedCity);
   const university = decodeURIComponent(encodedUniversity);
 
-  const admin = createAdminClient();
-  const dates = await getCompletedSyncDates(admin);
+  const dates = await getCachedCompletedSyncDates();
   const latestDate = dates[0];
   const previousDate = dates[1] ?? null;
   const countryListings = latestDate
-    ? await getCountryInventory(admin, country, latestDate, previousDate)
+    ? await getCachedCountryInventory(country, latestDate, previousDate)
     : [];
   const listings = countryListings.filter(
     (l) => l.city === city && (l.university ?? "Unmapped") === university,

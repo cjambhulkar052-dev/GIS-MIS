@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getCompletedSyncDates, getSoldForDate } from "@/lib/sold-report";
+import { getCachedCompletedSyncDates, getCachedSoldForDate } from "@/lib/sold-report";
 
 function formatDate(dateStr: string): string {
   return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString("en-GB", {
@@ -19,11 +18,10 @@ export default async function SalesPage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
-  const admin = createAdminClient();
-  const dates = await getCompletedSyncDates(admin);
+  const dates = await getCachedCompletedSyncDates();
   const { date: requestedDate } = await searchParams;
   const selectedDate = requestedDate && dates.includes(requestedDate) ? requestedDate : dates[0];
-  const report = selectedDate ? await getSoldForDate(admin, selectedDate) : null;
+  const report = selectedDate ? await getCachedSoldForDate(selectedDate) : null;
 
   return (
     <>

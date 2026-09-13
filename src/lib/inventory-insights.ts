@@ -1,7 +1,15 @@
 import "server-only";
-import type { createAdminClient } from "./supabase/admin";
-import { fetchAllSnapshotRows, getCompletedSyncDates, type SnapshotRow } from "./sold-report";
+import { unstable_cache } from "next/cache";
+import { createAdminClient } from "./supabase/admin";
+import {
+  CATALOG_CACHE_TAG,
+  fetchAllSnapshotRows,
+  getCompletedSyncDates,
+  type SnapshotRow,
+} from "./sold-report";
 import { getCityGeo } from "./city-geo";
+
+const CATALOG_CACHE_SECONDS = 900;
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -173,6 +181,12 @@ export async function getInventoryInsights(supabase: AdminClient): Promise<Inven
   };
 }
 
+export const getCachedInventoryInsights = unstable_cache(
+  () => getInventoryInsights(createAdminClient()),
+  ["inventory-insights"],
+  { revalidate: CATALOG_CACHE_SECONDS, tags: [CATALOG_CACHE_TAG] },
+);
+
 export interface CountryListingRow {
   listingId: string;
   propertyName: string;
@@ -243,6 +257,13 @@ export async function getCountryInventory(
     return a.city.localeCompare(b.city) || a.propertyName.localeCompare(b.propertyName);
   });
 }
+
+export const getCachedCountryInventory = unstable_cache(
+  (country: string, latestDate: string, previousDate: string | null) =>
+    getCountryInventory(createAdminClient(), country, latestDate, previousDate),
+  ["country-inventory"],
+  { revalidate: CATALOG_CACHE_SECONDS, tags: [CATALOG_CACHE_TAG] },
+);
 
 export interface CityInventoryInsight {
   city: string;

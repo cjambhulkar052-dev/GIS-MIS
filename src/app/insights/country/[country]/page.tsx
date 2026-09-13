@@ -2,9 +2,8 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { PropertyMapLoader, type PropertyMapPoint } from "@/components/property-map-loader";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getCompletedSyncDates } from "@/lib/sold-report";
-import { getCountryInventory, summarizeByCity } from "@/lib/inventory-insights";
+import { getCachedCompletedSyncDates } from "@/lib/sold-report";
+import { getCachedCountryInventory, summarizeByCity } from "@/lib/inventory-insights";
 
 export default async function CountryInventoryPage({
   params,
@@ -14,12 +13,11 @@ export default async function CountryInventoryPage({
   const { country: encoded } = await params;
   const country = decodeURIComponent(encoded);
 
-  const admin = createAdminClient();
-  const dates = await getCompletedSyncDates(admin);
+  const dates = await getCachedCompletedSyncDates();
   const latestDate = dates[0];
   const previousDate = dates[1] ?? null;
   const listings = latestDate
-    ? await getCountryInventory(admin, country, latestDate, previousDate)
+    ? await getCachedCountryInventory(country, latestDate, previousDate)
     : [];
   const available = listings.filter((l) => l.status === "available");
   const sold = listings.filter((l) => l.status === "sold");
