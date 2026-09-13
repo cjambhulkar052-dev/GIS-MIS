@@ -5,8 +5,6 @@ import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/find-rooms", label: "Find Rooms" },
   { href: "/sales", label: "Sales Snapshot" },
   { href: "/insights", label: "Inventory Insight" },
 ];
