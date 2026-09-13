@@ -142,6 +142,14 @@ async function tick(force: boolean) {
         university: mapped.university ?? null,
         university_distance: mapped.universityDistance ?? null,
         details_url: mapped.detailsUrl ?? null,
+        image_url: mapped.images[0] ?? null,
+        room_type: mapped.roomType,
+        amenities: mapped.amenities.length > 0 ? mapped.amenities : null,
+        bills_policy: mapped.billsPolicy ?? null,
+        rating: mapped.rating ?? null,
+        available_from: mapped.availableFrom ?? null,
+        verified: mapped.verified,
+        instant_book: mapped.instantBook,
       };
     })
     .filter((r): r is SnapshotRow => r !== null);

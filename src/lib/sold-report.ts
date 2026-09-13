@@ -34,6 +34,16 @@ export interface SnapshotRow {
   university_distance: string | null;
   /** Deep link to the property's Amber page — null for older rows (see migration 0007). */
   details_url: string | null;
+  /** Featured property photo — null for older rows (see migration 0008). */
+  image_url: string | null;
+  /** Listing details below — null for older rows (see migration 0009). */
+  room_type: string | null;
+  amenities: string[] | null;
+  bills_policy: string | null;
+  rating: number | null;
+  available_from: string | null;
+  verified: boolean | null;
+  instant_book: boolean | null;
 }
 
 export interface SoldReport {

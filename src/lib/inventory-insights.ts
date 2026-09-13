@@ -203,6 +203,15 @@ export interface CountryListingRow {
   universityDistance: string | null;
   /** Deep link to the property's Amber page, when the sync captured one. */
   detailsUrl: string | null;
+  /** Featured property photo, when the sync captured one. */
+  imageUrl: string | null;
+  roomType: string | null;
+  amenities: string[] | null;
+  billsPolicy: string | null;
+  rating: number | null;
+  availableFrom: string | null;
+  verified: boolean | null;
+  instantBook: boolean | null;
 }
 
 /**
@@ -252,6 +261,14 @@ export async function getCountryInventory(
       university: source.university,
       universityDistance: source.university_distance,
       detailsUrl: source.details_url,
+      imageUrl: source.image_url,
+      roomType: source.room_type,
+      amenities: source.amenities,
+      billsPolicy: source.bills_policy,
+      rating: source.rating,
+      availableFrom: source.available_from,
+      verified: source.verified,
+      instantBook: source.instant_book,
     });
   }
 

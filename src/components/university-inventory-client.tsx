@@ -6,6 +6,7 @@ import {
   type PropertyMapPoint,
   type UniversityMapPoint,
 } from "@/components/property-map-loader";
+import { PropertyDetailModal } from "@/components/property-detail-modal";
 import type { CountryListingRow } from "@/lib/inventory-insights";
 
 type StatusFilter = "all" | "available" | "sold";
@@ -61,6 +62,7 @@ export function UniversityInventoryClient({
 }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortKey>("price-asc");
+  const [selected, setSelected] = useState<CountryListingRow | null>(null);
 
   const filtered = useMemo(() => {
     const base = statusFilter === "all" ? listings : listings.filter((l) => l.status === statusFilter);
@@ -163,18 +165,13 @@ export function UniversityInventoryClient({
               {filtered.map((l) => (
                 <tr key={l.listingId} className="border-b border-ink-100 last:border-0">
                   <td className="px-4 py-3 font-medium text-ink-900">
-                    {l.detailsUrl ? (
-                      <a
-                        href={l.detailsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hover:text-brand-600 hover:underline"
-                      >
-                        {l.propertyName}
-                      </a>
-                    ) : (
-                      l.propertyName
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSelected(l)}
+                      className="text-left hover:text-brand-600 hover:underline"
+                    >
+                      {l.propertyName}
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-ink-600">{l.universityDistance ?? "—"}</td>
                   <td className="px-4 py-3 text-ink-600">
@@ -202,6 +199,8 @@ export function UniversityInventoryClient({
           </table>
         </div>
       )}
+
+      {selected && <PropertyDetailModal listing={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
