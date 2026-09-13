@@ -62,7 +62,7 @@ export function SiteFooter() {
         </div>
         <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-ink-200 pt-6 sm:flex-row">
           <p className="text-xs text-ink-400">
-            © {new Date().getFullYear()} KirayaForex, Inc. All rights reserved.
+            © {new Date().getFullYear()} GIS MIS, Inc. All rights reserved.
           </p>
           <p className="text-xs text-ink-400">
             Inventory data provided by Amber and verified housing partners.

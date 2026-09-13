@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "KirayaForex | Student Accommodation Platform",
+  title: "GIS MIS | Student Accommodation Platform",
   description:
     "The B2B platform for sourcing, comparing, and booking verified student accommodation worldwide.",
 };

@@ -25,7 +25,7 @@ export default function LoginPage() {
         </div>
         <div className="relative max-w-md">
           <p className="text-2xl font-medium leading-snug">
-            &ldquo;KirayaForex cut our student housing search time from days
+            &ldquo;GIS MIS cut our student housing search time from days
             to minutes — the Amber sync alone was worth switching.&rdquo;
           </p>
           <p className="mt-4 text-sm text-ink-300">
@@ -57,7 +57,7 @@ export default function LoginPage() {
             Log in to your account
           </h1>
           <p className="mt-2 text-sm text-ink-500">
-            Access your KirayaForex partner dashboard.
+            Access your GIS MIS partner dashboard.
           </p>
 
           <div className="mt-8 grid grid-cols-2 gap-3">
@@ -136,7 +136,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-8 text-center text-sm text-ink-500">
-            New to KirayaForex?{" "}
+            New to GIS MIS?{" "}
             <Link
               href="/"
               className="font-medium text-brand-600 hover:text-brand-700"

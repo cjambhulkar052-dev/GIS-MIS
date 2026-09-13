@@ -82,7 +82,7 @@ export default function Home() {
                 infrastructure.
               </h1>
               <p className="mt-5 max-w-xl text-lg text-ink-600">
-                KirayaForex unifies verified room inventory from Amber and
+                GIS MIS unifies verified room inventory from Amber and
                 other housing partners into one searchable platform — built
                 for students, universities, and accommodation operators.
               </p>
