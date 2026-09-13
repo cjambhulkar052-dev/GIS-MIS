@@ -201,6 +201,8 @@ export interface CountryListingRow {
   university: string | null;
   /** Raw distance string to that university, e.g. "0.2 mi". */
   universityDistance: string | null;
+  /** Deep link to the property's Amber page, when the sync captured one. */
+  detailsUrl: string | null;
 }
 
 /**
@@ -249,6 +251,7 @@ export async function getCountryInventory(
       lng: source.lng,
       university: source.university,
       universityDistance: source.university_distance,
+      detailsUrl: source.details_url,
     });
   }
 

@@ -141,6 +141,7 @@ async function tick(force: boolean) {
         lng: mapped.lng ?? null,
         university: mapped.university ?? null,
         university_distance: mapped.universityDistance ?? null,
+        details_url: mapped.detailsUrl ?? null,
       };
     })
     .filter((r): r is SnapshotRow => r !== null);

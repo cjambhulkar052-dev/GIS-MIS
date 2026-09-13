@@ -32,6 +32,8 @@ export interface SnapshotRow {
   university: string | null;
   /** Raw distance string to that university, e.g. "0.2 mi" — null for older rows. */
   university_distance: string | null;
+  /** Deep link to the property's Amber page — null for older rows (see migration 0007). */
+  details_url: string | null;
 }
 
 export interface SoldReport {

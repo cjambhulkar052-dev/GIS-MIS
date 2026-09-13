@@ -162,7 +162,20 @@ export function UniversityInventoryClient({
             <tbody>
               {filtered.map((l) => (
                 <tr key={l.listingId} className="border-b border-ink-100 last:border-0">
-                  <td className="px-4 py-3 font-medium text-ink-900">{l.propertyName}</td>
+                  <td className="px-4 py-3 font-medium text-ink-900">
+                    {l.detailsUrl ? (
+                      <a
+                        href={l.detailsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-brand-600 hover:underline"
+                      >
+                        {l.propertyName}
+                      </a>
+                    ) : (
+                      l.propertyName
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-ink-600">{l.universityDistance ?? "—"}</td>
                   <td className="px-4 py-3 text-ink-600">
                     {l.price != null ? `${l.currency ?? ""} ${l.price}` : "—"}
