@@ -3,18 +3,9 @@ import { Resend } from "resend";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAmberInventoryBatch } from "@/lib/amber-sync";
 import { mapAmberInventory } from "@/lib/amber-map";
+import { getSoldForDate, type SnapshotRow, type SoldReport } from "@/lib/sold-report";
 
 export const maxDuration = 60;
-
-interface SnapshotRow {
-  listing_id: string;
-  snapshot_date: string;
-  property_name: string;
-  city: string | null;
-  price: number | null;
-  currency: string | null;
-  available: boolean;
-}
 
 interface SyncProgress {
   sync_date: string;
@@ -29,7 +20,7 @@ interface SyncProgress {
  * This endpoint is designed to be called repeatedly (e.g. every minute by
  * cron-job.org during the 9 o'clock hour) — each call fetches a few more
  * pages and persists progress in Supabase. Once the last page is reached,
- * that same call runs the diff against yesterday's snapshot and sends the
+ * that same call runs the diff against the previous snapshot and sends the
  * report email. Calls after completion for the day are cheap no-ops.
  */
 function istNow(): { date: string; hour: number } {
@@ -45,23 +36,13 @@ function istNow(): { date: string; hour: number } {
   return { date: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) };
 }
 
-function istDateString(daysAgo: number): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(Date.now() - daysAgo * 86_400_000));
-  const get = (type: string) => parts.find((p) => p.type === type)!.value;
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-function renderEmailHtml(soldRows: SnapshotRow[], yesterday: string, noBaseline: boolean): string {
+function renderEmailHtml(report: SoldReport): string {
+  const { soldRows, noBaseline, previousDate } = report;
   if (noBaseline) {
-    return `<p>No snapshot exists for ${yesterday} yet — this looks like the first run. Today's inventory has been saved as a baseline; tomorrow's report will show real comparisons.</p>`;
+    return `<p>No previous snapshot to compare against yet — this looks like an early run. Today's inventory has been saved as a baseline; tomorrow's report will show real comparisons.</p>`;
   }
   if (soldRows.length === 0) {
-    return `<p>No properties were sold on ${yesterday}.</p>`;
+    return `<p>No properties were sold on ${previousDate}.</p>`;
   }
   const rows = soldRows
     .map(
@@ -70,7 +51,7 @@ function renderEmailHtml(soldRows: SnapshotRow[], yesterday: string, noBaseline:
     )
     .join("");
   return `
-    <p>${soldRows.length} propert${soldRows.length === 1 ? "y was" : "ies were"} sold on ${yesterday}:</p>
+    <p>${soldRows.length} propert${soldRows.length === 1 ? "y was" : "ies were"} sold on ${previousDate}:</p>
     <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px">
       <thead><tr>
         <th style="text-align:left;padding:6px 12px;border-bottom:2px solid #ddd">Property</th>
@@ -190,60 +171,8 @@ async function tick(force: boolean) {
     });
   }
 
-  // Last page reached this tick — diff against yesterday and send the email.
-  return await finalizeAndEmail(supabase, today);
-}
-
-/**
- * Supabase/PostgREST caps an unpaginated select at 1000 rows by default —
- * with 4000+ listings a plain `.select("*")` would silently truncate the
- * diff. Page through with `.range()` until a page comes back short.
- */
-async function fetchAllSnapshotRows(
-  supabase: ReturnType<typeof createAdminClient>,
-  snapshotDate: string,
-): Promise<SnapshotRow[]> {
-  const PAGE_SIZE = 1000;
-  const all: SnapshotRow[] = [];
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("amber_inventory_snapshots")
-      .select("*")
-      .eq("snapshot_date", snapshotDate)
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw new Error(error.message);
-    all.push(...((data ?? []) as SnapshotRow[]));
-    if (!data || data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return all;
-}
-
-async function finalizeAndEmail(
-  supabase: ReturnType<typeof createAdminClient>,
-  today: string,
-) {
-  const yesterday = istDateString(1);
-
-  const [yesterdayRows, todayRows] = await Promise.all([
-    fetchAllSnapshotRows(supabase, yesterday),
-    fetchAllSnapshotRows(supabase, today),
-  ]);
-
-  const noBaseline = yesterdayRows.length === 0;
-  const todayById = new Map(todayRows.map((r) => [r.listing_id, r]));
-
-  const soldRows: SnapshotRow[] = noBaseline
-    ? []
-    : yesterdayRows.filter((y) => {
-        if (!y.available) return false;
-        const now = todayById.get(y.listing_id);
-        return !now || !now.available;
-      });
+  // Last page reached this tick — diff against the previous snapshot and email it.
+  const report = await getSoldForDate(supabase, today);
 
   const recipients = (process.env.DAILY_REPORT_RECIPIENTS ?? "")
     .split(",")
@@ -256,8 +185,8 @@ async function finalizeAndEmail(
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
       to: recipients,
-      subject: `Amber daily sales report — ${yesterday} (${noBaseline ? "no baseline" : soldRows.length})`,
-      html: renderEmailHtml(soldRows, yesterday, noBaseline),
+      subject: `Amber daily sales report — ${report.previousDate ?? today} (${report.noBaseline ? "no baseline" : report.soldRows.length})`,
+      html: renderEmailHtml(report),
     });
     emailResult = error ? { error: error.message } : { id: data?.id };
   }
@@ -265,10 +194,10 @@ async function finalizeAndEmail(
   return NextResponse.json({
     status: "completed",
     today,
-    yesterday,
-    scannedListings: todayRows.length,
-    soldCount: soldRows.length,
-    noBaseline,
+    previousDate: report.previousDate,
+    scannedListings: report.scannedListings,
+    soldCount: report.soldRows.length,
+    noBaseline: report.noBaseline,
     emailResult,
   });
 }

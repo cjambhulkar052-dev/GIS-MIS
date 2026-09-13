@@ -32,6 +32,14 @@ export async function SiteHeader() {
                 {link.label}
               </Link>
             ))}
+            {email && (
+              <Link
+                href="/sales"
+                className="text-sm font-medium text-ink-600 transition hover:text-ink-900"
+              >
+                Sales
+              </Link>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-3">
