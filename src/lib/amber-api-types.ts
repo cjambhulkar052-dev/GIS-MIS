@@ -114,6 +114,9 @@ export interface AmberApiMetaPagination {
   next: number | null;
   limit: number;
   current_page: number;
+  count?: number;
+  /** Windowed page-number list for pagination UI, e.g. [1,2,3,87] — last element is the final page. */
+  pages?: number[];
 }
 
 export interface AmberApiResponse {
