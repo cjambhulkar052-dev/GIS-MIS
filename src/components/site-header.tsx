@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/find-rooms", label: "Find Rooms" },
+  { href: "/sales", label: "Sales Snapshot" },
+  { href: "/insights", label: "Inventory Insight" },
 ];
 
 export async function SiteHeader() {
@@ -32,14 +34,6 @@ export async function SiteHeader() {
                 {link.label}
               </Link>
             ))}
-            {email && (
-              <Link
-                href="/sales"
-                className="text-sm font-medium text-ink-600 transition hover:text-ink-900"
-              >
-                Sales
-              </Link>
-            )}
           </nav>
         </div>
         <div className="flex items-center gap-3">

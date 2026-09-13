@@ -13,6 +13,9 @@ export interface AmberListing {
   propertyName: string;
   city: string;
   country?: string;
+  /** Real per-property GPS coordinates, when Amber reports them. */
+  lat?: number;
+  lng?: number;
   /** Nearest university/college Amber reports for this property, e.g. "Southern Methodist University". */
   university?: string;
   /** Raw distance string as Amber reports it (unit varies by region, e.g. "5.9 mi" or "3.2 km"). */

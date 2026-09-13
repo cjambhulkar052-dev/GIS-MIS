@@ -43,6 +43,17 @@ function deriveLocation(inv: AmberApiInventory): { city: string; country?: strin
   return { city: inv.location_name ?? "Unknown", country };
 }
 
+/**
+ * Prefers the coordinates nested under `location` (matches `deriveLocation`);
+ * falls back to the legacy top-level field. Not every Amber listing carries
+ * coordinates, so callers must handle `undefined`.
+ */
+function deriveCoordinates(inv: AmberApiInventory): { lat: number; lng: number } | undefined {
+  const coords = inv.location?.location_coordinates ?? inv.location_coordinates;
+  if (!coords || typeof coords.lat !== "number" || typeof coords.lng !== "number") return undefined;
+  return coords;
+}
+
 /** Amber dates arrive as dd-mm-yyyy; normalize to ISO (yyyy-mm-dd) for <input type=date> / Date parsing. */
 function toIsoDate(ddmmyyyy?: string): string | undefined {
   if (!ddmmyyyy) return undefined;
@@ -124,6 +135,7 @@ export function mapAmberInventory(inv: AmberApiInventory): AmberListing | null {
   if (!inv.name || price == null || !currency) return null;
 
   const { city, country } = deriveLocation(inv);
+  const coordinates = deriveCoordinates(inv);
   const nearestPlace = deriveNearestPlace(inv);
 
   return {
@@ -131,6 +143,8 @@ export function mapAmberInventory(inv: AmberApiInventory): AmberListing | null {
     propertyName: inv.name,
     city,
     country,
+    lat: coordinates?.lat,
+    lng: coordinates?.lng,
     university: nearestPlace?.place,
     universityDistance: nearestPlace?.distance,
     images: deriveImages(inv),

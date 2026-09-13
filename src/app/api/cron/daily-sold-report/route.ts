@@ -127,9 +127,14 @@ async function tick(force: boolean) {
         snapshot_date: today,
         property_name: mapped.propertyName,
         city: mapped.city,
+        country: mapped.country ?? null,
         price: mapped.price,
         currency: mapped.currency,
         available: inv.available !== false,
+        lat: mapped.lat ?? null,
+        lng: mapped.lng ?? null,
+        university: mapped.university ?? null,
+        university_distance: mapped.universityDistance ?? null,
       };
     })
     .filter((r): r is SnapshotRow => r !== null);

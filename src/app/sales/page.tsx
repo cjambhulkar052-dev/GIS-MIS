@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCompletedSyncDates, getSoldForDate } from "@/lib/sold-report";
 
@@ -21,12 +19,6 @@ export default async function SalesPage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  if (!data?.claims) {
-    redirect("/login");
-  }
-
   const admin = createAdminClient();
   const dates = await getCompletedSyncDates(admin);
   const { date: requestedDate } = await searchParams;

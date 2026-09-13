@@ -8,9 +8,18 @@ export interface SnapshotRow {
   snapshot_date: string;
   property_name: string;
   city: string | null;
+  /** Amber's own reported country for this property — authoritative, unlike the city-name lookup in city-geo.ts. Null for older rows. */
+  country: string | null;
   price: number | null;
   currency: string | null;
   available: boolean;
+  /** Real per-property coordinates, when Amber reported them at sync time — null for older rows. */
+  lat: number | null;
+  lng: number | null;
+  /** Nearest university/college Amber reports (excluding "city center") — null for older rows. */
+  university: string | null;
+  /** Raw distance string to that university, e.g. "0.2 mi" — null for older rows. */
+  university_distance: string | null;
 }
 
 export interface SoldReport {
