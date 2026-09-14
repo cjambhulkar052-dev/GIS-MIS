@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { Resend } from "resend";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchAmberInventoryBatch } from "@/lib/amber-sync";
+import type { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient as createAdmin } from "@/lib/supabase/admin";
+import {
+  fetchAmberInventoryBatch,
+  fetchAmberInventoryPage,
+  sleep,
+  DELAY_BETWEEN_PAGES_MS,
+  PAGES_PER_TICK,
+  RECONCILE_MAX_PAGES_PER_CITY,
+} from "@/lib/amber-sync";
 import { mapAmberInventory } from "@/lib/amber-map";
 import {
   CATALOG_CACHE_TAG,
+  fetchAllSnapshotRows,
+  getPreviousCompletedDate,
   getSoldForDate,
   type SnapshotRow,
   type SoldReport,
@@ -13,21 +23,42 @@ import {
 
 export const maxDuration = 60;
 
+type AdminClient = ReturnType<typeof createAdminClient>;
+
 interface SyncProgress {
   sync_date: string;
   next_page: number;
   total_pages: number | null;
-  status: "in_progress" | "completed";
+  status: "in_progress" | "reconciling" | "completed";
+}
+
+interface ReconcileQueueRow {
+  sync_date: string;
+  city: string;
+  status: "pending" | "done";
+  next_page: number;
+  pending_candidates: SnapshotRow[];
 }
 
 /**
  * Amber's full catalog (thousands of listings, ~87 pages) can't be crawled
  * within one serverless invocation given Amber's 10 req/min rate limit.
  * This endpoint is designed to be called repeatedly (e.g. every minute by
- * cron-job.org during the 9 o'clock hour) — each call fetches a few more
- * pages and persists progress in Supabase. Once the last page is reached,
- * that same call runs the diff against the previous snapshot and sends the
- * report email. Calls after completion for the day are cheap no-ops.
+ * cron-job.org during the 9 o'clock hour) and moves through three phases,
+ * tracked by `amber_sync_progress.status`:
+ *
+ *   1. "in_progress" — paging through Amber's full catalog, a few pages
+ *      per tick, same as before.
+ *   2. "reconciling" — Amber gives no stable sort/cursor guarantee across
+ *      the ~10-15 minutes the crawl takes, so a listing can shift pages
+ *      mid-crawl and get skipped entirely for that day, making it look
+ *      "sold" when it never left the catalog. This phase re-checks every
+ *      city that has at least one such "missing" listing directly against
+ *      Amber (see amber_reconcile_queue) before anything is called sold.
+ *   3. "completed" — the diff against yesterday is now trustworthy; the
+ *      report email goes out and the day is done.
+ *
+ * Calls after phase 3 for the day are cheap no-ops.
  */
 function istNow(): { date: string; hour: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -88,7 +119,7 @@ export async function GET(request: NextRequest) {
 }
 
 async function tick(force: boolean) {
-  const supabase = createAdminClient();
+  const supabase = createAdmin();
   const { date: today, hour } = istNow();
 
   const { data: existing, error: readError } = await supabase
@@ -122,7 +153,15 @@ async function tick(force: boolean) {
     return NextResponse.json({ status: "completed", message: "Already done for today." });
   }
 
-  // Fetch the next batch of pages and upsert them into today's snapshot.
+  if (progress.status === "reconciling") {
+    return await reconcileTick(supabase, today);
+  }
+
+  return await crawlTick(supabase, today, progress);
+}
+
+/** Phase 1: fetch the next batch of catalog pages and upsert them into today's snapshot. */
+async function crawlTick(supabase: AdminClient, today: string, progress: SyncProgress) {
   const batch = await fetchAmberInventoryBatch(progress.next_page);
   const mappedRows: SnapshotRow[] = batch.inventories
     .map((inv): SnapshotRow | null => {
@@ -174,7 +213,7 @@ async function tick(force: boolean) {
     .update({
       next_page: isDone ? progress.next_page : batch.nextPage,
       total_pages: batch.totalPages,
-      status: isDone ? "completed" : "in_progress",
+      status: isDone ? "reconciling" : "in_progress",
       updated_at: new Date().toISOString(),
     })
     .eq("sync_date", today);
@@ -191,10 +230,183 @@ async function tick(force: boolean) {
     });
   }
 
-  // Last page reached this tick — diff against the previous snapshot and email it.
-  // Insights/Sales pages cache reads off this same data (see CATALOG_CACHE_TAG), so
-  // bust that cache now rather than waiting for it to expire on its own.
+  // Last catalog page reached — seed the reconciliation queue (DB-only, no
+  // Amber calls here) and let the *next* tick spend its Amber-call budget
+  // on reconciliation, keeping each invocation's request count bounded.
+  return await seedReconcileQueue(supabase, today);
+}
+
+/**
+ * Finds every listing that was available yesterday and is entirely absent
+ * from today's just-finished crawl, groups the candidates by city, and
+ * queues one reconciliation row per city. A listing that's still present
+ * today but explicitly marked unavailable doesn't need re-checking — that
+ * comes straight from Amber, not from crawl completeness.
+ */
+async function seedReconcileQueue(supabase: AdminClient, today: string) {
+  const previousDate = await getPreviousCompletedDate(supabase, today);
+
+  if (!previousDate) {
+    return await finalizeAndReport(supabase, today);
+  }
+
+  const [todayRows, previousRows] = await Promise.all([
+    fetchAllSnapshotRows(supabase, today),
+    fetchAllSnapshotRows(supabase, previousDate),
+  ]);
+
+  const todayIds = new Set(todayRows.map((r) => r.listing_id));
+  const missing = previousRows.filter((prev) => prev.available && !todayIds.has(prev.listing_id));
+
+  if (missing.length === 0) {
+    return await finalizeAndReport(supabase, today);
+  }
+
+  const byCity = new Map<string, SnapshotRow[]>();
+  for (const row of missing) {
+    const city = row.city ?? "Unknown";
+    if (!byCity.has(city)) byCity.set(city, []);
+    byCity.get(city)!.push(row);
+  }
+
+  const queueRows: ReconcileQueueRow[] = Array.from(byCity.entries()).map(([city, candidates]) => ({
+    sync_date: today,
+    city,
+    status: "pending",
+    next_page: 1,
+    pending_candidates: candidates,
+  }));
+
+  const { error } = await supabase.from("amber_reconcile_queue").upsert(queueRows, {
+    onConflict: "sync_date,city",
+  });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    status: "reconciling",
+    message: `Queued ${queueRows.length} cities for reconciliation.`,
+    candidateListings: missing.length,
+  });
+}
+
+/**
+ * Phase 2: spends this tick's Amber-call budget re-checking pending cities
+ * directly against Amber's live feed (filtered by location_place_name,
+ * which the partner API does support). Any candidate found still live gets
+ * re-inserted into today's snapshot as available — correcting the false
+ * "sold" read — before the next tick continues with whatever's left.
+ */
+async function reconcileTick(supabase: AdminClient, today: string) {
+  const { data: pending, error } = await supabase
+    .from("amber_reconcile_queue")
+    .select("*")
+    .eq("sync_date", today)
+    .eq("status", "pending");
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const pendingRows = (pending ?? []) as ReconcileQueueRow[];
+  if (pendingRows.length === 0) {
+    return await finalizeAndReport(supabase, today);
+  }
+
+  const rescuedRows: SnapshotRow[] = [];
+  let requestsLeft = PAGES_PER_TICK;
+  let requestsMade = 0;
+
+  for (const row of pendingRows) {
+    if (requestsLeft <= 0) break;
+
+    const remainingCandidates = new Map(row.pending_candidates.map((c) => [c.listing_id, c]));
+    let page = row.next_page;
+    let done = false;
+
+    while (requestsLeft > 0 && remainingCandidates.size > 0) {
+      if (requestsMade > 0) await sleep(DELAY_BETWEEN_PAGES_MS);
+      const result = await fetchAmberInventoryPage(page, row.city);
+      requestsLeft--;
+      requestsMade++;
+
+      for (const inv of result.inventories) {
+        const id = `amber-${inv.id}`;
+        const candidate = remainingCandidates.get(id);
+        if (candidate) {
+          rescuedRows.push({ ...candidate, snapshot_date: today, available: true });
+          remainingCandidates.delete(id);
+        }
+      }
+
+      if (!result.nextPage || remainingCandidates.size === 0 || page >= RECONCILE_MAX_PAGES_PER_CITY) {
+        done = true;
+        break;
+      }
+      page = result.nextPage;
+    }
+
+    const { error: updateError } = await supabase
+      .from("amber_reconcile_queue")
+      .update({
+        status: done ? "done" : "pending",
+        next_page: page,
+        pending_candidates: Array.from(remainingCandidates.values()),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("sync_date", today)
+      .eq("city", row.city);
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    if (!done) break; // out of budget mid-city — resume this exact city next tick
+  }
+
+  if (rescuedRows.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("amber_inventory_snapshots")
+      .upsert(rescuedRows, { onConflict: "listing_id,snapshot_date" });
+    if (upsertError) {
+      return NextResponse.json({ error: upsertError.message }, { status: 500 });
+    }
+  }
+
+  const { count, error: countError } = await supabase
+    .from("amber_reconcile_queue")
+    .select("*", { count: "exact", head: true })
+    .eq("sync_date", today)
+    .eq("status", "pending");
+  if (countError) {
+    return NextResponse.json({ error: countError.message }, { status: 500 });
+  }
+
+  if ((count ?? 0) === 0) {
+    return await finalizeAndReport(supabase, today);
+  }
+
+  return NextResponse.json({
+    status: "reconciling",
+    rescuedThisTick: rescuedRows.length,
+    citiesRemaining: count,
+  });
+}
+
+/** Phase 3: today's snapshot is now trustworthy — diff it, email it, and mark the day done. */
+async function finalizeAndReport(supabase: AdminClient, today: string) {
+  // Insights/Sales pages cache reads off this same data (see CATALOG_CACHE_TAG),
+  // so bust that cache now that today's snapshot is final rather than waiting
+  // for it to expire on its own.
   revalidateTag(CATALOG_CACHE_TAG, { expire: 0 });
+
+  const { error: progressError } = await supabase
+    .from("amber_sync_progress")
+    .update({ status: "completed", updated_at: new Date().toISOString() })
+    .eq("sync_date", today);
+  if (progressError) {
+    return NextResponse.json({ error: progressError.message }, { status: 500 });
+  }
+
   const report = await getSoldForDate(supabase, today);
 
   const recipients = (process.env.DAILY_REPORT_RECIPIENTS ?? "")

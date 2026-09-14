@@ -102,7 +102,7 @@ export const getCachedCompletedSyncDates = unstable_cache(
 );
 
 /** The most recent completed sync strictly before `date`, or null if none. */
-async function getPreviousCompletedDate(
+export async function getPreviousCompletedDate(
   supabase: AdminClient,
   date: string,
 ): Promise<string | null> {

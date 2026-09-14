@@ -9,8 +9,12 @@ export const DELAY_BETWEEN_PAGES_MS = 7000;
 // Pages fetched per cron tick. At 7s/page this is ~42s of delay plus network
 // time, safely under Vercel's 60s hard timeout on the Hobby plan.
 export const PAGES_PER_TICK = 6;
+// Cap on how many pages of one city's results the reconciliation pass will
+// check before giving up on remaining unmatched candidates in that city —
+// bounds worst-case work for a handful of very large cities.
+export const RECONCILE_MAX_PAGES_PER_CITY = 10;
 
-function sleep(ms: number) {
+export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -20,8 +24,16 @@ export interface AmberPageResult {
   nextPage: number | null;
 }
 
-/** Fetches a single page of this partner's Amber inventory. */
-export async function fetchAmberInventoryPage(page: number): Promise<AmberPageResult> {
+/**
+ * Fetches a single page of this partner's Amber inventory. Pass
+ * `locationPlaceName` to scope the page to one city — used by the
+ * reconciliation pass (see amber_reconcile_queue) to re-check a specific
+ * city's current listings instead of re-crawling the whole catalog.
+ */
+export async function fetchAmberInventoryPage(
+  page: number,
+  locationPlaceName?: string,
+): Promise<AmberPageResult> {
   const partnerUuid = process.env.AMBER_PARTNER_UUID;
   if (!partnerUuid) {
     throw new Error("AMBER_PARTNER_UUID is not configured.");
@@ -30,6 +42,9 @@ export async function fetchAmberInventoryPage(page: number): Promise<AmberPageRe
   const url = new URL(`${AMBER_BASE_URL}/api/v0/leads/partners/${partnerUuid}/inventories`);
   url.searchParams.set("p", String(page));
   url.searchParams.set("limit", String(PAGE_LIMIT));
+  if (locationPlaceName) {
+    url.searchParams.set("location_place_name", locationPlaceName);
+  }
 
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
