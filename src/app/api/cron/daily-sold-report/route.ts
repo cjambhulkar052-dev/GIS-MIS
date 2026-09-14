@@ -237,11 +237,16 @@ async function crawlTick(supabase: AdminClient, today: string, progress: SyncPro
 }
 
 /**
- * Finds every listing that was available yesterday and is entirely absent
- * from today's just-finished crawl, groups the candidates by city, and
- * queues one reconciliation row per city. A listing that's still present
- * today but explicitly marked unavailable doesn't need re-checking — that
- * comes straight from Amber, not from crawl completeness.
+ * Finds every listing from yesterday's snapshot that's entirely absent from
+ * today's just-finished crawl — regardless of whether it was available or
+ * already sold out — groups the candidates by city, and queues one
+ * reconciliation row per city. A listing that's still present today but
+ * explicitly marked unavailable doesn't need re-checking — that comes
+ * straight from Amber, not from crawl completeness. (Missing-but-already-
+ * sold-out candidates matter too: left unreconciled, they silently vanish
+ * from the total instead of carrying forward as still sold out — see
+ * finalizeAndReport's cache-bust comment and the 2026-09-14 incident this
+ * was written for.)
  */
 async function seedReconcileQueue(supabase: AdminClient, today: string) {
   const previousDate = await getPreviousCompletedDate(supabase, today);
@@ -256,7 +261,7 @@ async function seedReconcileQueue(supabase: AdminClient, today: string) {
   ]);
 
   const todayIds = new Set(todayRows.map((r) => r.listing_id));
-  const missing = previousRows.filter((prev) => prev.available && !todayIds.has(prev.listing_id));
+  const missing = previousRows.filter((prev) => !todayIds.has(prev.listing_id));
 
   if (missing.length === 0) {
     return await finalizeAndReport(supabase, today);
@@ -294,9 +299,18 @@ async function seedReconcileQueue(supabase: AdminClient, today: string) {
 /**
  * Phase 2: spends this tick's Amber-call budget re-checking pending cities
  * directly against Amber's live feed (filtered by location_place_name,
- * which the partner API does support). Any candidate found still live gets
- * re-inserted into today's snapshot as available — correcting the false
- * "sold" read — before the next tick continues with whatever's left.
+ * which the partner API does support), before the next tick continues with
+ * whatever's left. Two outcomes per candidate:
+ *
+ *   - Found live: re-inserted into today's snapshot with Amber's *current*
+ *     availability (trust fresh data — a previously-sold-out listing found
+ *     live might still be sold out, or might not be; a previously-available
+ *     one found live corrects the false "sold" read).
+ *   - Still not found after exhausting the city (or the per-city page cap):
+ *     if it was already sold out yesterday, carry it forward as still sold
+ *     out — otherwise it silently vanishes from today's total instead of
+ *     just staying counted. If it was available yesterday, leave it absent;
+ *     that's a genuine sale and the diff already reads it correctly.
  */
 async function reconcileTick(supabase: AdminClient, today: string) {
   const { data: pending, error } = await supabase
@@ -313,7 +327,7 @@ async function reconcileTick(supabase: AdminClient, today: string) {
     return await finalizeAndReport(supabase, today);
   }
 
-  const rescuedRows: SnapshotRow[] = [];
+  const upsertRows: SnapshotRow[] = [];
   let requestsLeft = PAGES_PER_TICK;
   let requestsMade = 0;
 
@@ -334,7 +348,7 @@ async function reconcileTick(supabase: AdminClient, today: string) {
         const id = `amber-${inv.id}`;
         const candidate = remainingCandidates.get(id);
         if (candidate) {
-          rescuedRows.push({ ...candidate, snapshot_date: today, available: true });
+          upsertRows.push({ ...candidate, snapshot_date: today, available: inv.available !== false });
           remainingCandidates.delete(id);
         }
       }
@@ -344,6 +358,14 @@ async function reconcileTick(supabase: AdminClient, today: string) {
         break;
       }
       page = result.nextPage;
+    }
+
+    if (done) {
+      for (const candidate of remainingCandidates.values()) {
+        if (!candidate.available) {
+          upsertRows.push({ ...candidate, snapshot_date: today, available: false });
+        }
+      }
     }
 
     const { error: updateError } = await supabase
@@ -363,10 +385,10 @@ async function reconcileTick(supabase: AdminClient, today: string) {
     if (!done) break; // out of budget mid-city — resume this exact city next tick
   }
 
-  if (rescuedRows.length > 0) {
+  if (upsertRows.length > 0) {
     const { error: upsertError } = await supabase
       .from("amber_inventory_snapshots")
-      .upsert(rescuedRows, { onConflict: "listing_id,snapshot_date" });
+      .upsert(upsertRows, { onConflict: "listing_id,snapshot_date" });
     if (upsertError) {
       return NextResponse.json({ error: upsertError.message }, { status: 500 });
     }
@@ -387,7 +409,7 @@ async function reconcileTick(supabase: AdminClient, today: string) {
 
   return NextResponse.json({
     status: "reconciling",
-    rescuedThisTick: rescuedRows.length,
+    reconciledThisTick: upsertRows.length,
     citiesRemaining: count,
   });
 }
