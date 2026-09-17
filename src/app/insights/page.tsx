@@ -60,12 +60,7 @@ export default async function InsightsPage() {
                 </h1>
                 <p className="mt-1 max-w-2xl text-sm text-ink-500">
                   A geographic read on the overall Amber catalog — how much inventory is live
-                  right now, how much is already sold out, and where it all sits. For what sold
-                  today, see{" "}
-                  <Link href="/sales" className="font-medium text-brand-600 hover:text-brand-700">
-                    Sales
-                  </Link>
-                  .
+                  right now, how much is already sold out, and where it all sits.
                 </p>
               </div>
               <div className="flex flex-col gap-4">
