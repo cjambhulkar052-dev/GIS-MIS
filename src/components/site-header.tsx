@@ -4,10 +4,7 @@ import { signOut } from "@/app/auth/actions";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
-const NAV_LINKS = [
-  { href: "/sales", label: "Sales Snapshot" },
-  { href: "/insights", label: "Inventory Insight" },
-];
+const NAV_LINKS = [{ href: "/insights", label: "Inventory Insight" }];
 
 export async function SiteHeader() {
   let email: string | undefined;
