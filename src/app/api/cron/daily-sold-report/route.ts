@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { revalidateTag } from "next/cache";
 import { Resend } from "resend";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -107,14 +107,41 @@ export async function GET(request: NextRequest) {
   }
 
   const force = request.nextUrl.searchParams.get("force") === "true";
+  const origin = request.nextUrl.origin;
 
   try {
-    return await tick(force);
+    const result = await tick(force);
+    const body = (await result.clone().json()) as { status?: string };
+    if (body.status === "in_progress" || body.status === "reconciling") {
+      after(() => selfPing(origin));
+    }
+    return result;
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },
       { status: 500 },
     );
+  }
+}
+
+/**
+ * A day's crawl+reconcile takes far more ticks than Amber's rate limit lets
+ * one invocation do, so this used to rely entirely on cron-job.org calling
+ * back every minute for as long as the whole cycle took. When that external
+ * window closed early (see the 2026-09-15/16 incident, where reconciliation
+ * grew after 1f07b6a and didn't fit in the "9 o'clock hour" schedule), the
+ * sync was stranded in "reconciling" forever with no one left to call it.
+ * Self-chaining here means one external trigger is enough — this ping just
+ * needs to get the next tick started; it doesn't wait out that tick's own
+ * chain of pings.
+ */
+async function selfPing(origin: string) {
+  try {
+    await fetch(`${origin}/api/cron/daily-sold-report?secret=${process.env.CRON_SECRET}`, {
+      signal: AbortSignal.timeout(58_000),
+    });
+  } catch {
+    // Best-effort — if this fails, the next external cron call still resumes from saved progress.
   }
 }
 
